@@ -1,0 +1,53 @@
+2022-01-29T21:57:47.858Z
+mg.protocol.demux.Upstream
+GetPatchInfoReq
+
+2022-01-29T21:57:47.858Z
+mg.protocol.demux.Upstream
+ClientVersionPush
+
+2022-01-29T21:57:47.858Z
+mg.protocol.demux.Upstream
+ServiceReq
+    "service": "utility_service",
+    data: mg.protocol.utility.Req
+
+{
+    "request": {
+        "requestId": 0,
+        "serviceRequest": {
+        "service": "utility_service",
+        "data": "CgIKAA=="
+        }
+    }
+},
+
+2022-01-29T21:57:47.884Z
+mg.protocol.demux.Downstream
+GetPatchInfoRsp
+
+2022-01-29T21:57:47.884Z
+mg.protocol.demux.Downstream
+ServiceRsp
+    data: mg.protocol.utility.Rsp
+
+{
+    "response": {
+        "requestId": 0,
+        "serviceRsp": {
+        "success": true,
+        "data": "CgoKCAoCVVMSAk5B"
+        }
+    }
+},
+
+2022-01-29T21:57:59.214Z
+mg.protocol.demux.Upstream
+AuthenticateReq
+
+2022-01-29T21:57:59.336Z
+unknown
+
+2022-01-29T21:57:59.336Z
+mg.protocol.demux.Upstream
+ServiceReq
