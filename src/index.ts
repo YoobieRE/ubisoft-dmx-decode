@@ -5,7 +5,7 @@ import protobuf from 'protobufjs';
 import glob from 'glob';
 import { readFileSync, outputJSONSync } from 'fs-extra';
 import jsonHandler from './util/json-dupe-parse'; // Handles duplicate JSON keys
-import { ServiceRequestUpstream, ServiceResponseDownstream } from './types/demux';
+import * as demux from './types/generated/proto/proto_demux/demux';
 
 const DEMUX_HOST = 'dmx.upc.ubisoft.com';
 
@@ -13,7 +13,7 @@ const protoFiles = glob.sync('proto/**/*.proto');
 console.log(`Loaded ${protoFiles.length} protos`);
 const packageDefinition = protobuf.loadSync(protoFiles);
 
-const demux = packageDefinition.lookup('mg.protocol.demux') as protobuf.Namespace;
+const demuxSchema = packageDefinition.lookup('mg.protocol.demux') as protobuf.Namespace;
 
 const serviceMap: Record<string, protobuf.Namespace> = {
   utility_service: packageDefinition.lookup('mg.protocol.utility') as protobuf.Namespace,
@@ -102,31 +102,30 @@ const payloadJoiner = (payloads: TLSPayload[]): TLSPayload[] => {
 };
 
 const decodeRequests = (payloads: TLSPayload[]): any[] => {
-  const pendingRequests: Record<number, string> = {};
+  const openRequests: Record<number, string> = {};
+  const openConnections: Record<number, string> = {};
   const decodedDemux = payloads.map((payload) => {
-    const schema = demux.lookupType(payload.direction);
-    const body = schema.decode(payload.data) as any;
-    if (body?.request?.serviceRequest) {
-      const svcReqBody: ServiceRequestUpstream = body;
-      const { requestId } = svcReqBody.request;
-      const { data, service } = svcReqBody.request.serviceRequest;
+    const schema = demuxSchema.lookupType(payload.direction);
+    const body = schema.decode(payload.data) as unknown as demux.Upstream | demux.Downstream;
+    if ('request' in body && body.request?.serviceRequest) {
+      const { requestId } = body.request;
+      const { data, service } = body.request.serviceRequest;
       const serviceSchema = serviceMap[service];
       if (!serviceSchema) throw new Error(`Missing service: ${service}`);
       const dataType = serviceSchema.lookupType(payload.direction);
       const decodedData = dataType.decode(data);
-      pendingRequests[requestId] = service;
-      body.request.serviceRequest.data = decodedData;
+      openRequests[requestId] = service;
+      body.request.serviceRequest.data = decodedData as never;
     }
-    if (body?.response?.serviceRsp) {
-      const svcRspBody: ServiceResponseDownstream = body;
-      const { requestId } = svcRspBody.response;
-      const { data } = svcRspBody.response.serviceRsp;
-      const serviceName = pendingRequests[requestId];
+    if ('response' in body && body.response?.serviceRsp) {
+      const { requestId } = body.response;
+      const { data } = body.response.serviceRsp;
+      const serviceName = openRequests[requestId];
       const serviceSchema = serviceMap[serviceName];
       const dataType = serviceSchema.lookupType(payload.direction);
       const decodedData = dataType.decode(data);
-      delete pendingRequests[requestId];
-      body.response.serviceRsp.data = decodedData;
+      delete openRequests[requestId];
+      body.response.serviceRsp.data = decodedData as never;
     }
     return body;
   });

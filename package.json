@@ -4,7 +4,8 @@
   "description": "Decode the values sent in Ubisoft's dmx.upc.ubisoft.com API",
   "main": "dist/index.js",
   "scripts": {
-    "start": "ts-node src/index.ts"
+    "start": "ts-node src/index.ts",
+    "gen-demux": "protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/types/generated/. --ts_proto_opt=oneof=unions --ts_proto_opt=outputEncodeMethods=false --ts_proto_opt=outputJsonMethods=false --ts_proto_opt=esModuleInterop=true --ts_proto_opt=env=node ./proto/proto_demux/demux.proto"
   },
   "author": {
     "name": "Charlie Laabs",
@@ -51,6 +52,7 @@
     "rimraf": "^3.0.2",
     "ts-jest": "^27.1.3",
     "ts-node": "^10.4.0",
+    "ts-proto": "^1.105.0",
     "typescript": "^4.5.5"
   }
 }

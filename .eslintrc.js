@@ -37,5 +37,5 @@ module.exports = {
       }
     },
   },
-  ignorePatterns: ['dist/**', '.eslintrc.js', 'jest.config.js', 'src/proto/**']
+  ignorePatterns: ['dist/**', '.eslintrc.js', 'jest.config.js', 'src/types/generated/**']
 }
