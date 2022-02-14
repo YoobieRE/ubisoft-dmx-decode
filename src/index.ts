@@ -5,7 +5,7 @@ import protobuf from 'protobufjs';
 import glob from 'glob';
 import { readFileSync, outputJSONSync } from 'fs-extra';
 import jsonHandler from './util/json-dupe-parse'; // Handles duplicate JSON keys
-import * as demux from './types/generated/proto/proto_demux/demux';
+import * as demux from './generated/proto/proto_demux/demux';
 
 const DEMUX_HOST = 'dmx.upc.ubisoft.com';
 
