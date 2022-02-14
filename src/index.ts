@@ -23,7 +23,7 @@ const serviceMap: Record<string, protobuf.Namespace> = {
   friends_service: packageDefinition.lookup('mg.protocol.friends') as protobuf.Namespace,
   playtime_service: packageDefinition.lookup('mg.playtime') as protobuf.Namespace,
   party_service: packageDefinition.lookup('mg.protocol.party') as protobuf.Namespace,
-  download_service: packageDefinition.lookup('mg.protocol.download') as protobuf.Namespace,
+  download_service: packageDefinition.lookup('mg.protocol.download_service') as protobuf.Namespace,
   client_configuration_service: packageDefinition.lookup(
     'mg.protocol.client_configuration'
   ) as protobuf.Namespace,
@@ -34,12 +34,6 @@ interface TLSPayload {
   frame: number;
   direction: 'Upstream' | 'Downstream';
 }
-const jsonBufferReplacer = (_key: string, val: any) => {
-  if (val?.type === 'Buffer') {
-    return Buffer.from(val).toString('utf-8');
-  }
-  return val;
-};
 
 const getTLSPayload = (wsPacket: any): TLSPayload[] | null => {
   const layers = wsPacket._source?.layers;
@@ -102,32 +96,73 @@ const payloadJoiner = (payloads: TLSPayload[]): TLSPayload[] => {
 };
 
 const decodeRequests = (payloads: TLSPayload[]): any[] => {
-  const openRequests: Record<number, string> = {};
-  const openConnections: Record<number, string> = {};
+  const openServiceRequests = new Map<number, string>();
+  const openConnectionRequests = new Map<number, string>();
+  const openConnections = new Map<number, string>();
   const decodedDemux = payloads.map((payload) => {
     const schema = demuxSchema.lookupType(payload.direction);
-    const body = schema.decode(payload.data) as unknown as demux.Upstream | demux.Downstream;
+    const body = schema.decode(payload.data) as
+      | (protobuf.Message & demux.Upstream)
+      | (protobuf.Message & demux.Downstream);
+
+    // Service requests/responses
     if ('request' in body && body.request?.serviceRequest) {
       const { requestId } = body.request;
       const { data, service } = body.request.serviceRequest;
       const serviceSchema = serviceMap[service];
       if (!serviceSchema) throw new Error(`Missing service: ${service}`);
       const dataType = serviceSchema.lookupType(payload.direction);
-      const decodedData = dataType.decode(data);
-      openRequests[requestId] = service;
-      body.request.serviceRequest.data = decodedData as never;
+      const decodedData = dataType.decode(data) as never;
+      openServiceRequests.set(requestId, service);
+      const updatedBody = body.toJSON();
+      updatedBody.request.serviceRequest.data = decodedData;
+      return updatedBody;
     }
     if ('response' in body && body.response?.serviceRsp) {
       const { requestId } = body.response;
       const { data } = body.response.serviceRsp;
-      const serviceName = openRequests[requestId];
+      const serviceName = openServiceRequests.get(requestId) as string;
       const serviceSchema = serviceMap[serviceName];
       const dataType = serviceSchema.lookupType(payload.direction);
-      const decodedData = dataType.decode(data);
-      delete openRequests[requestId];
-      body.response.serviceRsp.data = decodedData as never;
+      const decodedData = dataType.decode(data) as never;
+      openServiceRequests.delete(requestId);
+      const updatedBody = body.toJSON();
+      updatedBody.response.serviceRsp.data = decodedData;
+      return updatedBody;
     }
-    return body;
+
+    // Connection requests/responses
+    if ('request' in body && body.request?.openConnectionReq) {
+      const { requestId } = body.request;
+      const { serviceName } = body.request.openConnectionReq;
+      openConnectionRequests.set(requestId, serviceName);
+    }
+    if ('response' in body && body.response?.openConnectionRsp) {
+      const { requestId } = body.response;
+      const { connectionId } = body.response.openConnectionRsp;
+      const serviceName = openConnectionRequests.get(requestId) as string;
+      openConnections.set(connectionId, serviceName);
+      openConnectionRequests.delete(requestId);
+    }
+
+    // Connection pushes/closed
+    if ('push' in body && body.push?.data) {
+      const { connectionId, data } = body.push.data;
+      const serviceName = openConnections.get(connectionId) as string;
+      const serviceSchema = serviceMap[serviceName];
+      if (!serviceSchema) throw new Error(`Missing service: ${serviceName}`);
+      const dataType = serviceSchema.lookupType(payload.direction);
+      const trimmedPush = data.subarray(4);
+      const decodedData = dataType.decode(trimmedPush) as never;
+      const updatedBody = body.toJSON();
+      updatedBody.push.data.data = decodedData;
+      return updatedBody;
+    }
+    if ('push' in body && body.push?.connectionClosed) {
+      const { connectionId } = body.push.connectionClosed;
+      openConnections.delete(connectionId);
+    }
+    return body.toJSON();
   });
   return decodedDemux;
 };
@@ -147,7 +182,6 @@ const main = () => {
   console.log(`Generated ${decodedDemuxes.length} responses`);
   outputJSONSync('decodes.json', decodedDemuxes, {
     spaces: 2,
-    replacer: jsonBufferReplacer,
   });
 };
 
