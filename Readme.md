@@ -13,7 +13,7 @@ Only needed if you need to update the protos
 
 ## How to get the wireshark JSON
 
-1. Setup `lsass` keydumping from [this guide](https://github.com/ngo/win-frida-scripts/tree/master/lsasslkeylog-easy)
+1. Setup `lsass` keydumping from [this guide](https://github.com/ngo/win-frida-scripts/tree/master/lsasslkeylog-easy) (special thanks to @Lariaa for helping me find this solution to get around certificate pinning!)
 1. In Wireshark, capture packets from a Ubisoft Connect session
 1. After capture, CTRL+R to reload the packets so decryption applies
 1. Filter packet capture with `(ip.dst == 216.98.50.146) || (ip.src == 216.98.50.146)`
