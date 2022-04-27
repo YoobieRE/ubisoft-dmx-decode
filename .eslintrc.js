@@ -7,20 +7,18 @@ module.exports = {
     'airbnb-base',
     'plugin:@typescript-eslint/recommended',
     'plugin:prettier/recommended',
-    'plugin:jest/recommended',
   ],
   parser: '@typescript-eslint/parser',
   parserOptions: {
     project: './tsconfig.json',
     sourceType: 'module'
   },
-  plugins: ['@typescript-eslint', 'jest'],
+  plugins: ['@typescript-eslint'],
   rules: {
     'import/extensions': 0,
     'import/prefer-default-export': 0,
     'no-shadow': 'off',
     '@typescript-eslint/no-shadow': ['error'],
-    'import/no-extraneous-dependencies': ['error', { devDependencies: ['test/**/*.ts'] }],
     'import/named': 0,
     'import/no-named-as-default': 0,
     'import/no-named-as-default-member': 0,

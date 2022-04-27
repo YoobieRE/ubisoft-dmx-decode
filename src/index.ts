@@ -1,6 +1,5 @@
 /* eslint-disable no-console */
 /* eslint-disable no-underscore-dangle */
-/* eslint-disable no-promise-executor-return */
 import protobuf from 'protobufjs';
 import glob from 'glob';
 import { readFileSync, outputJSONSync } from 'fs-extra';
@@ -38,6 +37,10 @@ interface TLSPayload {
 const getTLSPayload = (wsPacket: any): TLSPayload[] | null => {
   const layers = wsPacket._source?.layers;
   const data: string = layers?.data?.['data.data'];
+  if (layers?.tls && 'Ignored Unknown Record' in layers.tls) {
+    console.warn('Warning: Ignored Unknown Record');
+    return null;
+  }
   if (!data) return null;
   const frame = parseInt(layers.frame['frame.number'], 10);
 
@@ -152,7 +155,7 @@ const decodeRequests = (payloads: TLSPayload[]): any[] => {
       const serviceSchema = serviceMap[serviceName];
       if (!serviceSchema) throw new Error(`Missing service: ${serviceName}`);
       const dataType = serviceSchema.lookupType(payload.direction);
-      const trimmedPush = data.subarray(4);
+      const trimmedPush = data.subarray(4); // First 4 bytes are length
       const decodedData = dataType.decode(trimmedPush) as never;
       const updatedBody = body.toJSON();
       updatedBody.push.data.data = decodedData;
