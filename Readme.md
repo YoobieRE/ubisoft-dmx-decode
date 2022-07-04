@@ -51,14 +51,14 @@
 1. In the filter bar, enter `(ip.dst_host == dmx.upc.ubisoft.com) || (ip.src_host == dmx.upc.ubisoft.com)`
 1. Press CTRL+R to reload the packets to ensure decryption applies
 1. Right click a TLSv1.2 packet > Follow > TLS Stream, a window containing some readable text should appear. This means the decryption is working.
+1. Set "Show data as" to `YAML`, click "Save as...", and save as `tls-stream.yml`.
+1. Once saved, click the "Filter out this stream" button. Typically there are multiple demux TLS streams in one capture, and you'll need to repeat the above step for each one. Keep saving and filtering until none remain.
 
 ### 4. Decoding the requests
 
-1. Set the filter back to `(ip.dst_host == dmx.upc.ubisoft.com) || (ip.src_host == dmx.upc.ubisoft.com)`
-1. File > Export Packet Dissections > As JSON > Save as `dmx-upc.json` with the default settings
 1. Clone this project
 1. `npm i`
-1. Move `dmx-upc.json` to the root of the project
+1. Move `tls-stream.yml` to the root of the project
 1. `npm start`. The output will be written to `decodes.json`
 
 ## How to get the .proto's

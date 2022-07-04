@@ -3,10 +3,8 @@
 import protobuf from 'protobufjs';
 import glob from 'glob';
 import { readFileSync, outputJSONSync } from 'fs-extra';
-import jsonHandler from './util/json-dupe-parse'; // Handles duplicate JSON keys
+import yaml from 'yaml';
 import * as demux from './generated/proto/proto_demux/demux';
-
-const DEMUX_HOST = 'dmx.upc.ubisoft.com';
 
 const protoFiles = glob.sync('proto/**/*.proto');
 console.log(`Loaded ${protoFiles.length} protos`);
@@ -29,74 +27,29 @@ const serviceMap: Record<string, protobuf.Namespace> = {
 };
 
 interface TLSPayload {
+  length: number;
   data: Buffer;
-  frame: number;
+  index: number;
   direction: 'Upstream' | 'Downstream';
 }
 
-const getTLSPayload = (wsPacket: any): TLSPayload[] | null => {
-  const layers = wsPacket._source?.layers;
-  const data: string = layers?.data?.['data.data'];
-  if (layers?.tls && 'Ignored Unknown Record' in layers.tls) {
-    console.warn('Warning: Ignored Unknown Record');
-    return null;
-  }
-  if (!data) return null;
-  const frame = parseInt(layers.frame['frame.number'], 10);
+export interface Packet {
+  packet: number;
+  peer: number;
+  index: number;
+  timestamp: number;
+  data: string;
+}
 
-  let direction: 'Upstream' | 'Downstream' | null = null;
-  if (wsPacket._source?.layers?.ip['ip.dst_host'] === DEMUX_HOST) {
-    direction = 'Upstream';
-  }
-  if (wsPacket._source?.layers?.ip['ip.src_host'] === DEMUX_HOST) {
-    direction = 'Downstream';
-  }
-  if (!direction) return null;
-
-  const dataKeys = Object.keys(layers).filter((key) => key.match(/data\d*/));
-  const payloads = dataKeys
-    .map((key) => {
-      const currentData = layers[key]?.['data.data'];
-      if (!currentData) return null;
-      return {
-        frame,
-        direction,
-        data: Buffer.from(currentData.replace(/:/g, ''), 'hex'),
-      };
-    })
-    .filter((p): p is TLSPayload => p !== null);
-  return payloads;
-};
-
-const payloadJoiner = (payloads: TLSPayload[]): TLSPayload[] => {
-  const joinedPayloads: TLSPayload[] = [];
-  let currentPayload: Buffer | null = null;
-  let currentPayloadLength: number | null = null;
-  payloads.forEach((payload) => {
-    const { data } = payload;
-    if (currentPayload === null) {
-      const length = data.readUInt32BE();
-      const dataSeg = data.subarray(4);
-
-      if (dataSeg.length === length) {
-        joinedPayloads.push({ ...payload, data: dataSeg });
-      } else {
-        currentPayload = dataSeg;
-        currentPayloadLength = length;
-      }
-    } else {
-      const dataSeg = Buffer.concat([currentPayload, data]);
-      if (dataSeg.length === currentPayloadLength) {
-        joinedPayloads.push({ ...payload, data: dataSeg });
-        currentPayload = null;
-        currentPayloadLength = null;
-      } else {
-        currentPayload = dataSeg;
-      }
-    }
-  });
-  return joinedPayloads;
-};
+export interface Peer {
+  peer: number;
+  host: string;
+  port: number;
+}
+export interface TLSStreamExport {
+  peers: Peer[];
+  packets: Packet[];
+}
 
 const decodeRequests = (payloads: TLSPayload[]): any[] => {
   const openServiceRequests = new Map<number, string>();
@@ -104,16 +57,28 @@ const decodeRequests = (payloads: TLSPayload[]): any[] => {
   const openConnections = new Map<number, string>();
   const decodedDemux = payloads.map((payload) => {
     const schema = demuxSchema.lookupType(payload.direction);
+    console.log(`${payload.direction} index ${payload.index}:`);
+    if (payload.data.length !== payload.length) {
+      console.warn(
+        `Buffer length of ${payload.data.length} does not match expected length of ${payload.length}`
+      );
+      return null;
+    }
     const body = schema.decode(payload.data) as
       | (protobuf.Message & demux.Upstream)
       | (protobuf.Message & demux.Downstream);
+
+    // console.log(body);
 
     // Service requests/responses
     if ('request' in body && body.request?.serviceRequest) {
       const { requestId } = body.request;
       const { data, service } = body.request.serviceRequest;
       const serviceSchema = serviceMap[service];
-      if (!serviceSchema) throw new Error(`Missing service: ${service}`);
+      if (!serviceSchema) {
+        console.warn(`Missing service: ${service}`);
+        return null;
+      }
       const dataType = serviceSchema.lookupType(payload.direction);
       const decodedData = dataType.decode(data) as never;
       openServiceRequests.set(requestId, service);
@@ -153,7 +118,10 @@ const decodeRequests = (payloads: TLSPayload[]): any[] => {
       const { connectionId, data } = body.push.data;
       const serviceName = openConnections.get(connectionId) as string;
       const serviceSchema = serviceMap[serviceName];
-      if (!serviceSchema) throw new Error(`Missing service: ${serviceName}`);
+      if (!serviceSchema) {
+        console.warn(`Missing service: ${serviceName}`);
+        return null;
+      }
       const dataType = serviceSchema.lookupType(payload.direction);
       const trimmedPush = data.subarray(4); // First 4 bytes are length
       const decodedData = dataType.decode(trimmedPush) as never;
@@ -171,17 +139,28 @@ const decodeRequests = (payloads: TLSPayload[]): any[] => {
 };
 
 const main = () => {
-  const wsJson: any[] = jsonHandler.parse(readFileSync('dmx-upc.json', 'utf-8'), 'increment');
-  outputJSONSync('deduped-dmx-upc.json', wsJson, { spaces: 2 });
-  const payloads = wsJson
-    .map(getTLSPayload)
-    .filter((p): p is TLSPayload[] => p !== null)
-    .flat();
-  console.log(`${payloads.length} payloads found`);
-  const joinedPayloads = payloadJoiner(payloads);
-  outputJSONSync('tls-payloads.json', joinedPayloads, { spaces: 2 });
-
-  const decodedDemuxes = decodeRequests(joinedPayloads);
+  const tlsStream: TLSStreamExport = yaml.parse(readFileSync('tls-stream.yml', 'utf-8'), {
+    resolveKnownTags: false, // wireshark of course spits out invalid yaml binary, so we don't resolve it here
+    logLevel: 'error',
+  });
+  outputJSONSync('parsed-tls-stream.json', tlsStream, { spaces: 2 });
+  const upstreamPeer = tlsStream.peers.find((peer) => peer.port > 0)?.peer || 0;
+  const mappedPayloads: TLSPayload[] = tlsStream.packets.map((packet) => {
+    const b64Segments = packet.data.split(/=+/); // If there's padding, we need to parse each b64 string individually
+    const joinedBinary = b64Segments.reduce((acc, curr) => {
+      const segmentBuf = Buffer.from(curr, 'base64');
+      return Buffer.concat([acc, segmentBuf]);
+    }, Buffer.alloc(0));
+    const length = joinedBinary.readUInt32BE();
+    const dataSeg = joinedBinary.subarray(4);
+    return {
+      length,
+      data: dataSeg,
+      index: packet.index,
+      direction: packet.peer === upstreamPeer ? 'Upstream' : 'Downstream',
+    };
+  });
+  const decodedDemuxes = decodeRequests(mappedPayloads);
   console.log(`Generated ${decodedDemuxes.length} responses`);
   outputJSONSync('decodes.json', decodedDemuxes, {
     spaces: 2,

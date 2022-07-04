@@ -25,10 +25,10 @@
     "node": ">=14"
   },
   "dependencies": {
-    "backslash": "^0.2.0",
     "fs-extra": "^10.0.0",
     "glob": "^7.2.0",
-    "protobufjs": "^6.11.2"
+    "protobufjs": "^6.11.2",
+    "yaml": "^2.1.1"
   },
   "devDependencies": {
     "@types/fs-extra": "^9.0.13",
